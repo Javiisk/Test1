@@ -88,7 +88,7 @@ object WebDavUploadNotifications {
     private fun post(context: Context, notification: android.app.Notification) {
         runCatching {
             val manager = context.getSystemService(NotificationManager::class.java) ?: return
-            manager.createNotificationChannel(
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
                     context.getString(R.string.upload_channel_name),
