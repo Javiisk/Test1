@@ -315,7 +315,7 @@ object PlaylistSync {
 
     private fun post(context: Context, id: Int, notification: Notification) {
         val manager = notifications(context) ?: return
-        manager.createNotificationChannel(
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
                 context.getString(R.string.playlist_updates_channel),
