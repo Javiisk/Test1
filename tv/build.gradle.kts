@@ -36,6 +36,13 @@ val listenTogetherServer: String = (
 
 val betaSuffix = ""
 
+val prepareTvRes = tasks.register<Sync>("prepareTvRes") {
+    from("../app/src/main/res") { exclude("mipmap-anydpi/**") }
+    from("../app/src/main/res/mipmap-anydpi") { into("mipmap-anydpi-v26") }
+    into(layout.buildDirectory.dir("tvRes"))
+}
+tasks.named("preBuild") { dependsOn(prepareTvRes) }
+
 android {
     namespace = "com.music.bitchord"
     compileSdk = 37
@@ -72,7 +79,7 @@ android {
     sourceSets {
         getByName("main") {
             java.srcDir("../app/src/main/java")
-            res.srcDir("../app/src/main/res")
+            res.srcDir(prepareTvRes)
             assets.srcDir("../app/src/main/assets")
             jniLibs.srcDir("../app/src/main/jniLibs")
         }
