@@ -233,7 +233,7 @@ class DownloadService : Service() {
 
     private fun createChannel() {
         val manager = getSystemService(NotificationManager::class.java) ?: return
-        manager.createNotificationChannel(
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
                 "Downloads",
