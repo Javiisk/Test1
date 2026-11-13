@@ -80,7 +80,7 @@ android {
         applicationId = "com.music.bitchord.tv"
         // 26 keeps reach wide; real-time blur (RenderEffect) kicks in on API 31+,
         // Haze falls back to a translucent scrim below that.
-        minSdk = 26
+        minSdk = 25
         targetSdk = 36
         versionCode = 39
         versionName = "1.9.1"
@@ -227,6 +227,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // java.time (LocalDate, Instant...) only exists natively from API 26.
+        isCoreLibraryDesugaringEnabled = true
     }
     packaging {
         resources {
@@ -292,6 +294,7 @@ val newPipeExtractorStripped = tasks.register<org.gradle.api.tasks.bundling.Jar>
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation(project(":shared"))
     implementation(project(":sharedUi"))
 
@@ -405,104 +408,4 @@ dependencies {
     // Pinned to v0.26.3, not the newer v0.26.4: v0.26.4's player-JS parser fails with
     // "Could not parse deobfuscation function" on the current player build, which blocks
     // WEB_REMIX's ciphered formats entirely. v0.26.3 solves the same signatures cleanly
-    // against the same player JS — confirmed side by side against PixelMusic-ref, which
-    // pins v0.26.3 and doesn't hit the parse failure.
-    //
-    // Consumed as a stripped jar rather than as the module, so its own
-    // Utils.class does not reach dexing. See newPipeExtractorStripped above; the
-    // transitive dependencies the module would have brought are listed here
-    // because dropping its artifact drops them too. If the version changes,
-    // re-derive this list with
-    //   ./gradlew :app:dependencies --configuration prodReleaseRuntimeClasspath
-    implementation(files(newPipeExtractorStripped))
-    implementation("com.github.TeamNewPipe:nanojson:e9d656ddb49a412a5a0a5d5ef20ca7ef09549996")
-    implementation("org.jsoup:jsoup:1.22.2")
-    implementation("com.google.code.findbugs:jsr305:3.0.2")
-    implementation("com.google.protobuf:protobuf-javalite:4.35.0")
-    implementation("org.mozilla:rhino:1.8.1")
-    implementation("org.mozilla:rhino-engine:1.8.1")
-
-    // ---- Auth/session storage ----
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
-
-    // ---- JS module execution: QuickJS VM for style source plugins ----
-    // Held at InnerTubeX's version; the same VM runs QuickJsExecutor's module sources.
-    implementation("io.github.dokar3:quickjs-kt-android:1.0.14")
-
-    // ---- SMB file shares: pure-Java SMB2/3 client (listing + streaming) ----
-    implementation("com.hierynomus:smbj:0.15.0")
-
-    // ---- Automix: on-device beat/downbeat model (Beat This!, MIT-licensed) ----
-    // The full android artifact, not onnxruntime-mobile: mobile only loads .ort
-    // files, which would put an offline conversion step between the model and
-    // the app for a saving that does not matter in a self-distributed APK.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
-
-    // ---- Casting: Google Cast sender + the route discovery it sits on ----
-    // The framework and the router only. media3-cast is left out on purpose:
-    // its CastPlayer hands the receiver whatever URI a MediaItem carries, and
-    // ours are `bitchord://` addresses that only the service's resolver can
-    // turn into a real stream — see [com.music.bitchord.playback.cast.CastPlayback].
-    implementation("com.google.android.gms:play-services-cast-framework:22.2.0")
-    implementation("androidx.mediarouter:mediarouter:1.8.1")
-
-    testImplementation("junit:junit:4.13.2")
-    // A real HTTP server for the addon tests. The addon protocol is entirely
-    // "what does this app send, and what does it do with what comes back", and
-    // a hand-rolled fake of the client would be a test of the fake. Pinned to
-    // the OkHttp version already on the runtime classpath.
-    testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
-    androidTestImplementation("androidx.test.ext:junit:1.3.0")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
-}
-
-/*
- * A debug APK lands on the device uncompiled — `dumpsys package dexopt` reports
- * it as run-from-apk — so every launch verifies the whole app's classes at
- * runtime before a line of our code runs. Measured on the BlueStacks box, that
- * was about two seconds of every cold start and most of why the dev build felt
- * so much slower than a release one. `verify` is the cheapest filter that
- * removes it (~15s once per install), and unlike `speed` it leaves the debug
- * build debuggable exactly as before.
- *
- * Runs after `installDevDebug` from the command line. Android Studio's Run
- * button deploys on its own and never reaches this task, so from there run
- * `./gradlew verifyDevInstall` after installing.
- */
-val verifyDevInstall = tasks.register("verifyDevInstall") {
-    group = "install"
-    description = "Pre-verifies the installed dev build on every connected device."
-    val adb = androidComponents.sdkComponents.adb
-    doLast {
-        val adbPath = adb.get().asFile.absolutePath
-        val serials = ProcessBuilder(adbPath, "devices").start()
-            .inputStream.bufferedReader().readLines()
-            .drop(1)
-            .mapNotNull { line -> line.split('\t').takeIf { it.size == 2 && it[1] == "device" }?.get(0) }
-        serials.forEach { serial ->
-            logger.lifecycle("verifyDevInstall: compiling com.dev.bitchord on $serial")
-            ProcessBuilder(
-                adbPath, "-s", serial, "shell", "cmd", "package", "compile",
-                "-m", "verify", "-f", "com.dev.bitchord",
-            ).inheritIO().start().waitFor()
-        }
-    }
-}
-tasks.matching { it.name == "installDevDebug" }.configureEach { finalizedBy(verifyDevInstall) }
-
-/*
- * Drop the phone-app Kotlin file wherever tv/src/main/java carries one at the
- * same path, so the two never both reach the compiler as the same class.
- */
-val phoneJava = file("../app/src/main/java")
-val tvJava = file("src/main/java")
-val replacedByTv: Set<String> = fileTree(tvJava) { include("**/*.kt") }.files
-    .map { it.relativeTo(tvJava).invariantSeparatorsPath }
-    .filter { File(phoneJava, it).isFile }
-    .toSet()
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    exclude { el ->
-        el.file.startsWith(phoneJava) && el.relativePath.pathString in replacedByTv
-    }
-}
+    // against the same
